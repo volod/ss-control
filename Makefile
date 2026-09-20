@@ -16,7 +16,7 @@ export RUFF_CACHE_DIR := $(DATA_ROOT)/cache/ruff
 .DEFAULT_GOAL := help
 
 .PHONY: help bootstrap venv lock format format-check lint test lint-doc-links lint-spec-plan \
-	plan-status ci eval eval-down docker-check
+	plan-status ci eval eval-down docker-check credentials up down logs enrol probe test-stack
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*## "; print "Usage: make <target>\n"} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -59,6 +59,29 @@ docker-check: ## Fail if the Docker daemon is not reachable
 	fi
 
 ci: bootstrap format-check lint test lint-doc-links lint-spec-plan ## Required local and GitHub CI gate
+
+credentials: bootstrap ## Generate or print .env.secrets
+	@$(ENV) "$(PY)" -m ss_control.stack credentials --list
+
+up: bootstrap docker-check ## Start production compose (Caddy 80/443, Authelia, step-ca)
+	@$(ENV) "$(PY)" -m ss_control.stack up
+
+down: docker-check ## Stop production compose (keeps certs and .env.secrets)
+	@$(ENV) "$(PY)" -m ss_control.stack down
+
+logs: docker-check ## Tail production compose logs
+	@$(ENV) docker compose -p ss-control --env-file "$${DATA_DIR}/ss-control/compose.env" -f "$(PROJECT_ROOT)/docker-compose.yml" logs --tail=100
+
+enrol: bootstrap docker-check ## Issue a client or service cert: make enrol KIND=client NAME=mqtt-1
+	@test -n "$(KIND)" && test -n "$(NAME)" || { echo "usage: make enrol KIND=client NAME=<id>"; exit 2; }
+	@$(ENV) "$(PY)" -m ss_control.stack enrol "$(KIND)" "$(NAME)"
+
+probe: bootstrap docker-check ## OIDC Grafana, MQTT mTLS, published ports
+	@$(ENV) "$(PY)" -m ss_control.stack probe
+
+test-stack: up ## Bring the stack up and run acceptance probes
+	@$(ENV) SS_CONTROL_LIVE=1 "$(PY)" -m pytest tests/stack/test_live.py $(PYTEST_CACHE)
+	@$(ENV) "$(PY)" -m ss_control.stack probe
 
 eval: bootstrap docker-check ## Run identity-provider and OpenRemote evaluation (Docker)
 	@$(ENV) "$(PY)" -m ss_control.eval run

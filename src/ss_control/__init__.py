@@ -1,1 +1,1 @@
-"""ss-control package: site control-plane evaluation harness."""
+"""ss-control package: site control-plane compose stack and evaluation harness."""

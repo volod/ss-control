@@ -25,8 +25,10 @@ siblings = []`.
 ## Tests and quality
 
 `make ci` is the required gate: locked install, format, lint, unit tests, documentation links,
-and spec-plan integrity. `make eval` is the measured identity-provider run and needs Docker; it
-is not part of `make ci`.
+and spec-plan integrity. `make up` starts the production compose project (Caddy, Authelia,
+step-ca, Grafana, Node-RED, Prometheus, cAdvisor). `make probe` runs OIDC, MQTT mTLS, and the
+published-port check. `make eval` is the measured identity-provider run. Docker targets are not
+part of `make ci`.
 
 ## Documentation lifecycle
 
@@ -37,4 +39,4 @@ is not part of `make ci`.
 | What exists and where? | `docs/impl/current.md` |
 | How is work performed? | `docs/guide/` and this file |
 
-The parent repository still owns `stage-ss-control` until this project is published.
+The parent repository still owns `publish-ss-control` until this project is published.

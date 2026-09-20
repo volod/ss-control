@@ -16,9 +16,9 @@ need an asset view, dashboards, alarms, and automation, and a Pi cannot host JVM
 
 **Behavior.** ss-control deploys as its own compose project:
 
-- a reverse proxy that is the only human ingress;
+- a reverse proxy that is the only human ingress (host ports 80 and 443);
 - an identity provider with OIDC single sign-on for every UI and API; UIs without native OIDC
-  (Streamlit, Frigate) sit behind the proxy's forward-auth;
+  (ss-video UI, Frigate) sit behind the proxy's forward-auth;
 - a site CA issuing device and service certificates for MQTT and service-to-service mTLS;
 - Prometheus, Grafana, and log collection;
 - Node-RED, admin-only behind the identity provider because it can execute code.
@@ -47,9 +47,10 @@ optional profile.
 **Evaluation.** Candidate identity providers (Keycloak, Kanidm, Authelia) behind Caddy, with
 step-ca as the site CA, were measured for idle and peak CPU and RAM on this amd64 host. SSO works
 for Grafana, ChirpStack, and Node-RED on the selected stack. MQTT rejects clients without a
-site-CA certificate. The audit log records logins. Valid negative recorded: Keycloak on the
-nettop if Authelia were unavailable; OpenRemote is not kept because composition covers operator
-needs.
+site-CA certificate. The audit log records logins. Production compose (`make up`) publishes only
+80 and 443, completes Grafana OIDC login, and enforces MQTT mTLS. Valid negative recorded:
+Keycloak on the nettop if Authelia were unavailable; OpenRemote is not kept because composition
+covers operator needs.
 
 ## Capability Registry
 
@@ -58,7 +59,7 @@ and has open plan work, or `shipped` when current-state documentation describes 
 
 | # | Capability | Status | How it is evaluated | Implementation |
 | --- | --- | --- | --- | --- |
-| 1 | `site-control-plane` | planned | Measured resource table; SSO, mTLS, and audit checks | -- |
+| 1 | `site-control-plane` | shipped | Measured resource table; SSO, mTLS, and published-port checks | [current.md](../impl/current.md) |
 
 ## Extending this specification
 

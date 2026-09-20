@@ -104,4 +104,4 @@ That tag is not edited from this repository. When the ss-sens plan continues: dr
 `openremote-asset-sync`; `operator-dashboard-acceptance` uses Grafana and Node-RED behind
 ss-control SSO.
 
-Production compose is `stage-ss-control` (not this evaluation).
+Production compose is documented in [stack.md](stack.md).

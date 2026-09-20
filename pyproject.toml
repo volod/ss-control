@@ -22,6 +22,7 @@ dev = [
 
 [project.scripts]
 ss-control-eval = "ss_control.eval.cli:main"
+ss-control = "ss_control.stack.cli:main"
 
 [project.urls]
 Repository = "https://github.com/volod/ss-control"
