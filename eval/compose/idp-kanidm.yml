@@ -1,0 +1,46 @@
+services:
+  kanidm:
+    image: ${KANIDM_IMAGE}
+    volumes:
+      - ${EVAL_DATA_DIR}/kanidm:/data
+      - ${EVAL_CONFIG_DIR}/kanidm-server.toml:/data/server.toml:ro
+      - ${EVAL_DATA_DIR}/certs/kanidm.crt:/data/server.pem:ro
+      - ${EVAL_DATA_DIR}/certs/kanidm.key:/data/server.key:ro
+    networks: [eval]
+    command: ["kanidmd", "server"]
+    healthcheck:
+      test: ["CMD-SHELL", "kanidmd healthcheck || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  chirpstack:
+    depends_on:
+      kanidm:
+        condition: service_started
+
+  oauth2-proxy:
+    image: ${OAUTH2_PROXY_IMAGE}
+    command:
+      - --http-address=0.0.0.0:4180
+      - --provider=oidc
+      - --oidc-issuer-url=${OAUTH2_ISSUER_INTERNAL}
+      - --client-id=oauth2-proxy
+      - --client-secret=${OAUTH2_CLIENT_SECRET}
+      - --cookie-secret=${OAUTH2_COOKIE_SECRET}
+      - --cookie-secure=true
+      - --cookie-domain=.${EVAL_DOMAIN}
+      - --whitelist-domain=.${EVAL_DOMAIN}:${PROXY_HTTPS_PORT}
+      - --email-domain=*
+      - --redirect-url=https://streamlit.${EVAL_DOMAIN}:${PROXY_HTTPS_PORT}/oauth2/callback
+      - --insecure-oidc-skip-issuer-verification=true
+      - --ssl-insecure-skip-verify=true
+      - --set-xauthrequest=true
+      - --reverse-proxy=true
+      - --skip-provider-button=true
+      - --upstream=static://202
+    networks: [eval]
+    restart: on-failure
+    depends_on:
+      - kanidm

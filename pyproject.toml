@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ss-control"
+version = "0.1.0"
+description = "Site control plane: reverse proxy, identity, site CA, and operator ingress"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "selfsuvis contributors" }]
+dependencies = [
+    "ss-common[web]>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<10",
+    "ruff>=0.11,<0.17",
+]
+
+[project.scripts]
+ss-control-eval = "ss_control.eval.cli:main"
+
+[project.urls]
+Repository = "https://github.com/volod/ss-control"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ss-split]
+siblings = []
+
+[tool.uv.sources]
+ss-common = { git = "https://github.com/volod/ss-common", tag = "v0.1.0" }
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,93 @@
+name: ${COMPOSE_PROJECT}
+
+networks:
+  eval:
+    driver: bridge
+
+services:
+  step-ca:
+    image: ${STEP_CA_IMAGE}
+    environment:
+      DOCKER_STEPCA_INIT_NAME: ss-control-eval
+      DOCKER_STEPCA_INIT_DNS_NAMES: step-ca,localhost,mosquitto
+      DOCKER_STEPCA_INIT_PASSWORD: ${STEP_CA_PASSWORD}
+      DOCKER_STEPCA_INIT_PROVISIONER_NAME: ${STEP_PROVISIONER}
+    volumes:
+      - ${EVAL_DATA_DIR}/step-ca:/home/step
+    networks: [eval]
+    healthcheck:
+      test: ["CMD", "step", "ca", "health", "--ca-url", "https://127.0.0.1:9000", "-f"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mosquitto:
+    image: ${MOSQUITTO_IMAGE}
+    ports:
+      - "127.0.0.1:${MQTT_TLS_PORT}:8883"
+    volumes:
+      - ${EVAL_MOSQUITTO_CONF}:/mosquitto/config/mosquitto.conf:ro
+      - ${EVAL_DATA_DIR}/certs:/mosquitto/certs:ro
+    networks: [eval]
+    restart: on-failure
+
+  postgresql:
+    image: ${OPENREMOTE_POSTGRES_IMAGE}
+    shm_size: 128mb
+    environment:
+      POSTGRES_DB: openremote
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    networks: [eval]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  keycloak:
+    image: ${OPENREMOTE_KEYCLOAK_IMAGE}
+    restart: on-failure
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      KEYCLOAK_ADMIN_PASSWORD: ${OPENREMOTE_ADMIN_PASSWORD}
+      KC_DB_URL_HOST: postgresql
+      KC_DB_URL_PORT: "5432"
+      KC_DB_URL_DATABASE: openremote
+      KC_DB_USERNAME: postgres
+      KC_DB_PASSWORD: postgres
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_PORT: ${OPENREMOTE_HTTPS_PORT}
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+    networks: [eval]
+
+  manager:
+    image: ${OPENREMOTE_MANAGER_IMAGE}
+    restart: on-failure
+    depends_on:
+      - keycloak
+    environment:
+      OR_ADMIN_PASSWORD: ${OPENREMOTE_ADMIN_PASSWORD}
+      OR_HOSTNAME: localhost
+      OR_SSL_PORT: ${OPENREMOTE_HTTPS_PORT}
+      OR_DEV_MODE: "true"
+      OR_KEYCLOAK_HOST: keycloak
+      OR_KEYCLOAK_PORT: "8080"
+    networks: [eval]
+
+  proxy:
+    image: ${OPENREMOTE_PROXY_IMAGE}
+    restart: on-failure
+    depends_on:
+      manager:
+        condition: service_started
+    ports:
+      - "127.0.0.1:${OPENREMOTE_HTTPS_PORT}:443"
+      - "127.0.0.1:19080:80"
+    environment:
+      DOMAINNAME: localhost
+      LE_EMAIL: ""
+    networks: [eval]

@@ -1,0 +1,64 @@
+services:
+  keycloak:
+    image: ${KEYCLOAK_IMAGE}
+    command:
+      - start
+      - --import-realm
+      - --http-enabled=true
+      - --hostname-strict=false
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_HOSTNAME: ${OIDC_PUBLIC_ORIGIN}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_ENABLED: "true"
+    volumes:
+      - ${EVAL_CONFIG_DIR}/realm.json:/opt/keycloak/data/import/realm.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [eval]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '200\\|UP'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  chirpstack:
+    depends_on:
+      keycloak:
+        condition: service_healthy
+
+  oauth2-proxy:
+    image: ${OAUTH2_PROXY_IMAGE}
+    command:
+      - --http-address=0.0.0.0:4180
+      - --provider=oidc
+      - --oidc-issuer-url=${OAUTH2_ISSUER_INTERNAL}
+      - --client-id=oauth2-proxy
+      - --client-secret=${OAUTH2_CLIENT_SECRET}
+      - --cookie-secret=${OAUTH2_COOKIE_SECRET}
+      - --cookie-secure=true
+      - --cookie-domain=.${EVAL_DOMAIN}
+      - --whitelist-domain=.${EVAL_DOMAIN}:${PROXY_HTTPS_PORT}
+      - --email-domain=*
+      - --redirect-url=https://streamlit.${EVAL_DOMAIN}:${PROXY_HTTPS_PORT}/oauth2/callback
+      - --oidc-extra-audience=account
+      - --insecure-oidc-skip-issuer-verification=true
+      - --ssl-insecure-skip-verify=true
+      - --set-xauthrequest=true
+      - --reverse-proxy=true
+      - --skip-provider-button=true
+      - --upstream=static://202
+    networks: [eval]
+    restart: on-failure
+    depends_on:
+      keycloak:
+        condition: service_healthy

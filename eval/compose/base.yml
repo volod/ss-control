@@ -1,0 +1,182 @@
+name: ${COMPOSE_PROJECT}
+
+networks:
+  eval:
+    driver: bridge
+
+services:
+  caddy:
+    image: ${CADDY_IMAGE}
+    ports:
+      - "127.0.0.1:${PROXY_HTTPS_PORT}:${CADDY_LISTEN_HTTPS}"
+      - "127.0.0.1:${PROXY_HTTP_PORT}:${CADDY_LISTEN_HTTP}"
+    volumes:
+      - ${EVAL_CONFIG_DIR}/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${EVAL_DATA_DIR}/certs/caddy.crt:/etc/caddy/certs/caddy.crt:ro
+      - ${EVAL_DATA_DIR}/certs/caddy.key:/etc/caddy/certs/caddy.key:ro
+    networks:
+      eval:
+        aliases:
+          - grafana.${EVAL_DOMAIN}
+          - chirpstack.${EVAL_DOMAIN}
+          - nodered.${EVAL_DOMAIN}
+          - streamlit.${EVAL_DOMAIN}
+          - frigate.${EVAL_DOMAIN}
+          - fusion.${EVAL_DOMAIN}
+          - registry.${EVAL_DOMAIN}
+          - auth.${EVAL_DOMAIN}
+    depends_on:
+      - stub
+      - grafana
+      - nodered
+    healthcheck:
+      test: ["CMD", "caddy", "version"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  step-ca:
+    image: ${STEP_CA_IMAGE}
+    environment:
+      DOCKER_STEPCA_INIT_NAME: ss-control-eval
+      DOCKER_STEPCA_INIT_DNS_NAMES: step-ca,localhost,mosquitto
+      DOCKER_STEPCA_INIT_PASSWORD: ${STEP_CA_PASSWORD}
+      DOCKER_STEPCA_INIT_PROVISIONER_NAME: ${STEP_PROVISIONER}
+    volumes:
+      - ${EVAL_DATA_DIR}/step-ca:/home/step
+    networks: [eval]
+    healthcheck:
+      test: ["CMD", "step", "ca", "health", "--ca-url", "https://127.0.0.1:9000", "-f"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  postgres:
+    image: ${POSTGRES_IMAGE}
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: eval
+      POSTGRES_DB: eval
+    volumes:
+      - ${EVAL_CONFIG_DIR}/postgres-init.sql:/docker-entrypoint-initdb.d/001-eval.sql:ro
+    networks: [eval]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eval"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: ${REDIS_IMAGE}
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks: [eval]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mosquitto:
+    image: ${MOSQUITTO_IMAGE}
+    ports:
+      - "127.0.0.1:${MQTT_TLS_PORT}:8883"
+    volumes:
+      - ${EVAL_MOSQUITTO_CONF}:/mosquitto/config/mosquitto.conf:ro
+      - ${EVAL_DATA_DIR}/certs:/mosquitto/certs:ro
+    networks: [eval]
+    restart: on-failure
+
+  stub:
+    build:
+      context: ${EVAL_STUB_CONTEXT}
+    image: ss-control-eval-stub:local
+    networks: [eval]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  grafana:
+    image: ${GRAFANA_IMAGE}
+    environment:
+      GF_SECURITY_ADMIN_USER: ${ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL}
+      GF_SERVER_HTTP_ADDR: 0.0.0.0
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
+      GF_AUTH_GENERIC_OAUTH_NAME: SSO
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: grafana
+      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: ${GRAFANA_CLIENT_SECRET}
+      GF_AUTH_GENERIC_OAUTH_SCOPES: openid profile email
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: ${OIDC_AUTH_URL}
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: ${OIDC_TOKEN_URL}
+      GF_AUTH_GENERIC_OAUTH_API_URL: ${OIDC_USERINFO_URL}
+      GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP: "true"
+      GF_AUTH_GENERIC_OAUTH_AUTO_LOGIN: "true"
+      GF_AUTH_GENERIC_OAUTH_USE_PKCE: "true"
+      GF_AUTH_GENERIC_OAUTH_TLS_SKIP_VERIFY_INSECURE: "true"
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "contains(groups[*], 'admins') && 'Admin' || 'Editor'"
+      GF_LOG_LEVEL: info
+    networks: [eval]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  nodered:
+    build:
+      context: ${EVAL_NODERED_CONTEXT}
+    image: ss-control-eval-nodered:local
+    environment:
+      PORT: "1880"
+      NODERED_CREDENTIAL_SECRET: ${NODERED_CREDENTIAL_SECRET}
+      OIDC_ISSUER: ${NODERED_OIDC_ISSUER}
+      OIDC_AUTH_URL: ${OIDC_AUTH_URL}
+      OIDC_TOKEN_URL: ${OIDC_TOKEN_URL}
+      OIDC_USERINFO_URL: ${OIDC_USERINFO_URL}
+      OIDC_CLIENT_ID: nodered
+      OIDC_CLIENT_SECRET: ${NODERED_CLIENT_SECRET}
+      OIDC_CALLBACK_URL: ${NODERED_CALLBACK_URL}
+      NODE_EXTRA_CA_CERTS: /certs/root_ca.crt
+    volumes:
+      - ${EVAL_NODERED_SETTINGS}:/data/settings.js:ro
+      - ${EVAL_DATA_DIR}/certs/root_ca.crt:/certs/root_ca.crt:ro
+    networks: [eval]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:1880/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  chirpstack:
+    image: ${CHIRPSTACK_IMAGE}
+    user: "0:0"
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    command: ["-c", "/etc/chirpstack"]
+    environment:
+      SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+      SSL_CERT_DIR: /etc/ssl/certs
+    volumes:
+      - ${EVAL_CHIRPSTACK_ENTRYPOINT}:/entrypoint.sh:ro
+      - ${EVAL_CONFIG_DIR}/chirpstack.toml:/etc/chirpstack/chirpstack.toml:ro
+      - ${EVAL_CHIRPSTACK_REGION}:/etc/chirpstack/region_eu868.toml:ro
+      - ${EVAL_DATA_DIR}/certs/root_ca.crt:/certs/root_ca.crt:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      caddy:
+        condition: service_started
+    networks: [eval]
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
